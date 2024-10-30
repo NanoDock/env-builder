@@ -1,2 +1,2 @@
 # env-builder
-Script that builds nix-os conifg files automatically using arugments to setup a dev environment.
+Script that builds nix-os config files automatically using arugments to setup a dev environment.
