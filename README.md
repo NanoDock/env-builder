@@ -308,3 +308,6 @@ docker run -it -v "$(pwd)":/app my-environment
    ```
 
 6. **Start developing your application within the container.**
+
+## Limitation
+Python version may not be parsed as it cannot be found in nixpkgs. For example 3.12.2 is not found but 3.12 is.
