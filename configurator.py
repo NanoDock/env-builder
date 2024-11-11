@@ -5,9 +5,9 @@ import os
 import sys
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description='Generate NixOS configuration files for development environments.')
+    parser = argparse.ArgumentParser(description='Generate NixOS configuration files and Dockerfile for development environments.')
     parser.add_argument('-language', '--language', required=True, help='Programming language (e.g., python, nodejs, deno, go, rust, swift, java, c++, dart, r)')
-    parser.add_argument('-version', '--version', required=True, help='Version of the programming language (e.g., 3.12.2)')
+    parser.add_argument('-version', '--version', help='Version of the programming language (e.g., 3.12.2). If not specified, the latest version is used.')
     parser.add_argument('-packages', '--packages', help='Path to a text file listing packages to install')
     parser.add_argument('-framework', '--framework', help='Specific framework to include (e.g., nextjs)')
     args = parser.parse_args()
@@ -33,29 +33,17 @@ def generate_nix_config(args, packages):
         content = generate_nodejs_nix(version, packages, framework)
     elif language == 'deno':
         content = generate_deno_nix(version)
-    elif language == 'bun':
-        content = generate_bun_nix(version, packages)
     elif language == 'go':
         content = generate_go_nix(version)
     elif language == 'rust':
         content = generate_rust_nix(version)
-    elif language == 'r':
-        content = generate_r_nix(version, packages)
-    elif language == 'java':
-        content = generate_java_nix(version, packages)
-    elif language == 'swift':
-        content = generate_swift_nix(version, packages)
-    elif language == 'c++' or language == 'cpp':
-        content = generate_cpp_nix(version, packages)
-    elif language == 'dart':
-        content = generate_dart_nix(version, packages)
+    # Add other languages as needed
     else:
         print(f'Language "{language}" is not supported yet.')
         sys.exit(1)
     return content
 
 def generate_python_nix(version, packages):
-    python_version_attr = f'python{version.replace(".", "")}'
     pkgs_import = '<nixpkgs>'
     packages_list = ''
     if packages:
@@ -64,11 +52,17 @@ def generate_python_nix(version, packages):
     else:
         packages_list = '[]'
 
+    if version:
+        python_version_attr = f'python{version.replace(".", "")}'
+        python_definition = f'python = pkgs.{python_version_attr} or (throw "Python version {version} not found in nixpkgs");'
+    else:
+        python_definition = 'python = pkgs.python3;  # Latest Python 3 version'
+
     shell_nix = f'''
 {{ pkgs ? import {pkgs_import} {{}} }}:
 
 let
-  python = pkgs.{python_version_attr};
+  {python_definition}
 in
 pkgs.mkShell {{
   buildInputs = [
@@ -79,171 +73,115 @@ pkgs.mkShell {{
     return shell_nix
 
 def generate_nodejs_nix(version, packages, framework):
-    nodejs_version_attr = f'nodejs-{version}'
     pkgs_import = '<nixpkgs>'
+
+    if version:
+        nodejs_version_attr = f'nodejs-{version}'
+        node_definition = f'node = pkgs.{nodejs_version_attr} or (throw "Node.js version {version} not found in nixpkgs");'
+    else:
+        node_definition = 'node = pkgs.nodejs;  # Latest Node.js version'
 
     packages_list = ''
     if packages:
-        packages_list = ' '.join([f'ps."{pkg}"' for pkg in packages])
-    else:
-        packages_list = ''
-
-    framework_dependency = ''
+        packages_list = ' '.join(packages)
     if framework:
-        # For example, Next.js is installed via npm
-        if framework.lower() == 'nextjs' or framework.lower() == 'next':
-            framework_dependency = 'ps.next'
-        else:
-            framework_dependency = f'ps.{framework.lower()}'
-
-    if framework_dependency:
-        packages_list = f'{packages_list} {framework_dependency}'.strip()
+        packages_list += f' {framework}'
 
     shell_nix = f'''
 {{ pkgs ? import {pkgs_import} {{}} }}:
 
 let
-  nodePackages = pkgs.{nodejs_version_attr}.packages;
+  {node_definition}
 in
 pkgs.mkShell {{
-  buildInputs = [
-    pkgs.{nodejs_version_attr}
-    (nodePackages.buildNodePackage {{
-      name = "my-node-package";
-      src = null;
-      pkgJson = {{
-        dependencies = {{
-          {', '.join([f'"{pkg}": "*"' for pkg in packages])}
-        }};
-      }};
-    }})
-  ];
+  buildInputs = [ node ];
+
+  shellHook = ''
+    mkdir -p node_env
+    cd node_env
+    npm init -y
+    npm install {packages_list.strip()}
+  '';
 }}
 '''
     return shell_nix
 
 def generate_deno_nix(version):
     pkgs_import = '<nixpkgs>'
-    shell_nix = f'''
-{{ pkgs ? import {pkgs_import} {{}} }}:
-
-pkgs.mkShell {{
-  buildInputs = [
-    pkgs.deno
-  ];
-
-  DENOVER = "{version}";
-}}
-'''
-    return shell_nix
-
-def generate_bun_nix(version, packages):
-    pkgs_import = '<nixpkgs>'
-    packages_list = ''
-    if packages:
-        packages_list = ' '.join([f'"{pkg}"' for pkg in packages])
+    if version:
+        deno_definition = f'deno = pkgs.deno_{version.replace(".", "_")} or (throw "Deno version {version} not found in nixpkgs");'
+    else:
+        deno_definition = 'deno = pkgs.deno;  # Latest Deno version'
 
     shell_nix = f'''
 {{ pkgs ? import {pkgs_import} {{}} }}:
 
+let
+  {deno_definition}
+in
 pkgs.mkShell {{
-  buildInputs = [
-    pkgs.bun
-  ];
-
-  shellHook = ''
-    bun install {packages_list}
-  '';
+  buildInputs = [ deno ];
 }}
 '''
     return shell_nix
 
 def generate_go_nix(version):
-    go_version_attr = f'go_{version.replace(".", "_")}'
     pkgs_import = '<nixpkgs>'
+    if version:
+        go_version_attr = f'go_{version.replace(".", "_")}'
+        go_definition = f'go = pkgs.{go_version_attr} or (throw "Go version {version} not found in nixpkgs");'
+    else:
+        go_definition = 'go = pkgs.go;  # Latest Go version'
+
     shell_nix = f'''
 {{ pkgs ? import {pkgs_import} {{}} }}:
 
+let
+  {go_definition}
+in
 pkgs.mkShell {{
-  buildInputs = [ pkgs.{go_version_attr} ];
+  buildInputs = [ go ];
 }}
 '''
     return shell_nix
 
 def generate_rust_nix(version):
-    rust_channel = f'stable-{version}'
     pkgs_import = '<nixpkgs>'
-    shell_nix = f'''
-{{ pkgs ? import {pkgs_import} {{}} }}:
-
-pkgs.mkShell {{
-  buildInputs = [ (pkgs.rustChannelOf {{ channel = "{rust_channel}"; }}).rust ];
-}}
-'''
-    return shell_nix
-
-def generate_r_nix(version, packages):
-    pkgs_import = '<nixpkgs>'
-    packages_list = ''
-    if packages:
-        packages_list = ' '.join([f'ps.{pkg}' for pkg in packages])
+    if version:
+        rust_definition = f'rust = pkgs.rustup.override {{ defaultToolchain = "{version}"; }};'
     else:
-        packages_list = ''
+        rust_definition = 'rust = pkgs.rustup;  # Latest Rust version'
+
     shell_nix = f'''
 {{ pkgs ? import {pkgs_import} {{}} }}:
 
+let
+  {rust_definition}
+in
 pkgs.mkShell {{
-  buildInputs = [
-    pkgs.R
-  ];
+  buildInputs = [ rust ];
 }}
 '''
     return shell_nix
 
-def generate_java_nix(version, packages):
-    java_version_attr = f'jdk{version.replace(".", "")}'
-    pkgs_import = '<nixpkgs>'
-    shell_nix = f'''
-{{ pkgs ? import {pkgs_import} {{}} }}:
+def generate_dockerfile():
+    dockerfile_content = '''
+# Use the official Nix image
+FROM nixos/nix
 
-pkgs.mkShell {{
-  buildInputs = [ pkgs.{java_version_attr} ];
-}}
+# Set the working directory
+WORKDIR /app
+
+# Copy the shell.nix file into the container
+COPY shell.nix .
+
+# Run nix-shell to set up the environment
+RUN nix-shell --run "exit"
+
+# Set the default command to enter the nix-shell
+CMD ["nix-shell"]
 '''
-    return shell_nix
-
-def generate_swift_nix(version, packages):
-    pkgs_import = '<nixpkgs>'
-    shell_nix = f'''
-{{ pkgs ? import {pkgs_import} {{}} }}:
-
-pkgs.mkShell {{
-  buildInputs = [ pkgs.swift ];
-}}
-'''
-    return shell_nix
-
-def generate_cpp_nix(version, packages):
-    pkgs_import = '<nixpkgs>'
-    shell_nix = f'''
-{{ pkgs ? import {pkgs_import} {{}} }}:
-
-pkgs.mkShell {{
-  buildInputs = [ pkgs.gcc pkgs.make ];
-}}
-'''
-    return shell_nix
-
-def generate_dart_nix(version, packages):
-    pkgs_import = '<nixpkgs>'
-    shell_nix = f'''
-{{ pkgs ? import {pkgs_import} {{}} }}:
-
-pkgs.mkShell {{
-  buildInputs = [ pkgs.dart ];
-}}
-'''
-    return shell_nix
+    return dockerfile_content
 
 def main():
     args = parse_arguments()
@@ -253,6 +191,11 @@ def main():
     with open('shell.nix', 'w') as f:
         f.write(nix_config_content)
     print('shell.nix has been generated.')
+
+    dockerfile_content = generate_dockerfile()
+    with open('Dockerfile', 'w') as f:
+        f.write(dockerfile_content)
+    print('Dockerfile has been generated.')
 
 if __name__ == '__main__':
     main()
